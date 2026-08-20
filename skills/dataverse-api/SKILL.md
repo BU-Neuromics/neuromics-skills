@@ -2,7 +2,7 @@
 name: dataverse-api
 description: "Use when scripting or debugging the Dataverse native REST API: creating datasets and minting DOIs, generating Preview/Private URLs for reviewer access, publishing datasets, discovering required metadata fields and controlled vocabularies, or handling differences between Dataverse instances and versions. Invoke when the user automates a Dataverse deposit, mentions dataverse.harvard.edu or demo.dataverse.org, asks about X-Dataverse-key, dataset-json, previewUrl or privateUrl, anonymizedAccess, :publish, dataset collections and aliases, or needs to give journal reviewers access to an unpublished Dataverse dataset."
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Dataverse native API
@@ -161,19 +161,53 @@ verified:
    while its neighbours in the same directory succeed, this is why. Do not
    waste time on permissions.
 
-## CSV files are silently transformed
+## Tabular ingest: CSV files gain a second representation
 
-Dataverse **ingests tabular data**. A deposited `merged_metadata.csv` appears as
-`merged_metadata.tab` at a different byte size, and the conversion is
-instance-dependent: 128,506 bytes on Harvard 6.10.1 versus 127,366 on demo 6.11
-for identical input. An 82 MB `all_counts.csv` was ingested on Harvard but left
-alone on demo, so the size threshold differs too.
+Dataverse runs **tabular ingest** on CSV, TSV, Stata, SPSS, R and Excel
+deposits, parsing them into its own tab-delimited archival form to enable
+preview, variable-level metadata and external tools. Be precise about what this
+does, because the alarming description is the wrong one:
 
-The original file **is** retained: a git-annex drop/get round trip returned
-byte-identical content with unchanged md5 on both instances. But **a human
-downloading through the web UI receives the `.tab`, not the CSV.** If exact
-bytes matter to a reader, disable ingest for that file or deposit it
-compressed.
+**Nothing is overwritten.** The original is retained as a first-class object.
+The file metadata records `originalFileName`, `originalFileFormat` and
+`originalFileSize`, and — importantly — the `md5`/`checksum` Dataverse reports
+is the **original's**, not the derived file's. `?format=original` returns the
+original byte-for-byte, and the web UI's download menu offers "the original
+file" among its formats.
+
+**But the default download is the derived file**, and it differs semantically.
+On one 125-column clinical table, ingest rewrote `NA` to empty string in 3,614
+of 26,375 cells; the rest of the delta was commas becoming tabs and 2,110 added
+quote characters, accounting exactly for the byte difference. No values were
+altered — but for a "not assessed" code, collapsing `NA` to blank is a real
+change, and it is invisible to anyone who does not know to ask.
+
+Worse, the derived form is **not reproducible across instances**: identical
+input produced 128,506 bytes on one instance and 127,366 on another. So the
+`.tab` cannot be treated as canonical, and its checksum will not match the
+`md5` displayed beside it.
+
+### Controlling it
+
+- **At upload: `tabIngest: "false"`** in the `jsonData` field of
+  `/datasets/:persistentId/add` prevents ingest. Verified from an ordinary
+  account — **no superuser needed**. This is the only reliable control a
+  depositor has.
+- **Ingest is asynchronous.** The upload response *always* reports
+  `tabularData: false`; re-query the file listing to see the real outcome.
+  This produces convincing false negatives.
+- **`uningest` is superuser-only.** An ordinary depositor gets
+  `User @… is not permitted to perform requested action`, so there is **no
+  after-the-fact remedy**. It must be prevented at upload.
+- **There is no per-collection setting.** The only installation-level control
+  is `:TabularIngestSizeLimit`, a global superuser database setting that sets a
+  size *threshold*, not an on/off switch — which is why the same file may be
+  ingested on one instance and skipped on another.
+- Compressed files (`.csv.gz`) are not ingested, which is a workaround when you
+  cannot set `tabIngest`.
+
+If a client library uploads for you, check whether it can pass `tabIngest`
+before assuming you have control.
 
 ## Publishing requires the parent collection to be published
 
@@ -207,6 +241,11 @@ already own. Do not assume demo's permission model matches production's.
   (`<host>/previewurl.xhtml?token=...`), and a `roleAssignment` granting the
   `member` role, described as "A person who can view both unpublished
   dataverses and datasets."
+- **Download a file**: `/api/access/datafile/{id}` serves the derived form;
+  add `?format=original` for the deposited bytes. Both answer **`303`** with a
+  redirect to a presigned object-store URL carrying a short expiry (one hour
+  observed) — so follow redirects, and if you record the URL anywhere, record
+  the API endpoint, never the presigned link.
 - **Delete a file**: `DELETE /api/files/{id}` → `{"status":"OK","data":true}`.
   Useful for cleaning up after failed or exploratory uploads; file ids come
   from the version's file listing.

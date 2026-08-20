@@ -60,10 +60,13 @@ one-DOI-for-all-versions model.
 
 DataLad dataset design for pipelines whose outputs feed other projects.
 Versioning versus provenance, thin-dataset versus one-repo shape, keeping
-clinical files out on purpose, where content bytes live and why a host must
-never become part of a dataset's identity, `datalad run` granularity when a
-workflow engine owns execution, and the `annex`/`filetree` mode choice when
-publishing to Dataverse.
+clinical files out on purpose, and the separation that matters most: a mutable
+private **working store** versus an immutable citable **archive**, chosen
+independently. Covers the storage-backend menu (S3/MinIO, WebDAV, rclone,
+rsync, encrypted remotes, self-hosting trade-offs), why an archival repository
+is the wrong home for a working store, publishing exactly one DOI, and
+registering published download URLs as annex sources so a single citable record
+serves both humans and DataLad.
 
 ## Provenance of the API findings
 

@@ -2,7 +2,7 @@
 name: research-data-publication
 description: "Use when planning where research data will live and how it becomes citable: choosing between Zenodo, Dataverse, and Figshare; keeping data private until publication; granting journal reviewers access to unpublished data; minting DOIs; embargoes and restricted access; controlled-access requirements for human-subject data; or migrating off a sunsetting data host. Invoke when the user asks where to host processed data, how to publish a dataset, how to share data with reviewers, what repository to deposit in, how to keep data private until a paper is accepted, whether data needs dbGaP or controlled access, or mentions DOI, FAIR, data availability statement, embargo, InvenioRDM, OSF, or supplemental data."
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Research data publication

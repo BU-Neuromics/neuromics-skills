@@ -1,8 +1,8 @@
 ---
 name: datalad-project-data
-description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly."
+description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly. Also covers choosing a storage backend (S3/MinIO, WebDAV, rclone, rsync, encrypted remotes, self-hosting trade-offs), why an archival repository is the wrong place for a working store, publishing exactly one DOI, and registering published download URLs as annex sources with git annex registerurl so one citable record serves both humans and DataLad."
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # DataLad for pipeline output data
@@ -91,34 +91,140 @@ Set annex policy explicitly rather than inheriting a default:
 *.csv annex.largefiles=anything
 ```
 
-## Where the bytes live
+## Two storage roles, chosen independently
 
-The git layer and the content layer go to different places, and this is the
-feature. Filenames, checksums, and history are small text and can live in a
-private GitHub repo — reachable from anywhere. Only content needs a store.
+The most common design mistake is treating "where does the data live" as one
+question. It is two, with different requirements and usually different answers:
+
+| | **Working store** | **Published archive** |
+|---|---|---|
+| Lifetime | while the work is active | forever |
+| Mutability | overwritten constantly | immutable once published |
+| Visibility | private | public (or controlled) |
+| Versions | all of them | the one behind the paper |
+| Identity | a config value | a DOI you cite |
+
+Keep these separate in your head and in your configuration. The git layer —
+filenames, checksums, history — is small text and lives in a git host
+regardless; only *content* needs a store.
 
 Because content location is a **mutable, many-valued property** of a
 content-addressed dataset, you can add, remove, and re-order stores forever
-without changing the dataset or what consumers type. Design accordingly: never
-let a host become part of the dataset's identity. This is what makes a
-sunsetting provider a config change rather than a migration.
+without changing the dataset or what consumers type. Never let a host become
+part of the dataset's identity. This is what turns a provider shutting down
+into a config change instead of a migration.
 
-Common stores:
+### Working store: pick per environment
 
-- **RIA store** — `datalad create-sibling-ria -s store ria+ssh://host:/path`.
-  Good on shared cluster filesystems. Check whether that filesystem is actually
-  backed up; many HPC "project" partitions are explicitly not.
-- **rsync special remote over SSH** — takes an `ssh.example.com:/path` target,
-  SSH transport by default. Supports `encryption=none|shared|hybrid|pubkey`,
-  so an untrusted host can hold encrypted content. This is the answer when
-  someone asks whether git-annex works over scp.
-- **S3** — mature, first-class special remote support.
+git-annex ships many remote types — `S3`, `rsync`, `webdav`, `rclone`,
+`directory`, `gcrypt`, `git-lfs`, `httpalso`, `external` and more. Check what
+your build offers with `git annex version`. Practical picks:
 
-**Direction matters more than reachability.** If the cluster requires
-interactive 2FA for inbound SSH, do not design a workflow where a laptop pulls
-*from* the cluster — an authentication prompt in the middle of a `datalad get`
-is miserable. Push *out* from the cluster to a store the other environment can
-reach.
+- **S3-compatible** — the best-supported path. Points at anything speaking the
+  S3 API, not just AWS: set `host=`, `protocol=https`, `requeststyle=path`,
+  and `signature=v4` or `v2` to target MinIO or similar. Credentials from
+  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
+- **WebDAV** — simplest thing to stand up. `url=`, credentials from
+  `WEBDAV_USERNAME` / `WEBDAV_PASSWORD`; works against Nextcloud/ownCloud and
+  friends. Notably it accepts `exporttree=yes` *and* `annexobjects=yes`, so one
+  remote can hold a readable tree and annex objects together.
+- **rclone** — reaches dozens of consumer and institutional cloud services,
+  which often means using storage your institution already pays for.
+- **rsync over SSH** — free and obvious when you control a reachable host.
+  **Check direction and reachability before designing around it:** a host
+  reachable *from* your cluster is not necessarily reachable from a laptop
+  outside the institutional network, and a cluster requiring interactive 2FA
+  for inbound SSH makes "pull from the cluster" miserable. Prefer pushing out
+  from the cluster to somewhere both ends can reach.
+- **`encryption=shared`** (or `hybrid`/`pubkey`) on any of the above — content
+  is GPG-encrypted at rest, so an untrusted or even public host holds bytes it
+  cannot read. This is the right answer for sensitive data on infrastructure
+  you do not control, and it is available on S3, WebDAV, rsync and more.
+
+**On self-hosting:** MinIO (single binary, S3 API) or a small WebDAV server are
+both easy to run and work natively. But weigh it honestly — standing up a
+TLS-terminated public service means certificates, patching, backups and uptime,
+and it makes your own box a single point of failure for data recovery, which is
+usually the thing you were trying to de-risk. For modest volumes, managed
+object storage with a free tier is less work and more durable. Self-host when
+you need data sovereignty or already run the infrastructure, not to save money
+on gigabytes.
+
+### Do not use an archival repository as your working store
+
+It is tempting, because a repository draft is private, network-reachable, and
+free. It also works. But it is off-label, and the platform will tell you so:
+
+- Repositories run **content transformations** on deposit. One silently
+  converted CSV files to its own tab-delimited format — including opaque
+  annex-key blobs it had no reason to touch — storing a derived copy of an
+  82 MB key nobody will ever read.
+- **Web application firewalls** score uploaded content. A markdown file
+  discussing shell commands was refused outright while its neighbours uploaded
+  fine.
+- Multi-version storage **grows monotonically**, so an unpublished draft
+  accumulates every version of every file, consuming a free community
+  allocation for content that will never be browsed.
+
+It is a curated-deposit system being fed blob traffic. Use it for the archive
+role it was built for, and put the working store on infrastructure meant for
+mutable object storage.
+
+### Publish exactly one DOI, ever
+
+If a workflow leaves you with two records for one dataset, publish one and keep
+the other **reserved but never published**. A draft's identifier does not
+resolve, is not indexed, and cannot be cited, so the ambiguity never reaches
+the world. Write down which is which, and why, or someone will later publish
+the second "for completeness" and you will have two citable identifiers for one
+set of bytes.
+
+The working store is infrastructure, not a citable object. Nobody cites their
+object store.
+
+### At publication, register the published URLs as annex sources
+
+This is what makes one published DOI serve both audiences, and it is the payoff
+for content-addressed storage. After the archive record is public, tell
+git-annex that each key is also available there:
+
+```bash
+git annex registerurl MD5E-s82214524--b63a48ec…  \
+  'https://<host>/api/access/datafile/<id>?format=original'
+```
+
+The `web` remote is enabled by default, so a consumer who clones the git layer
+can now `datalad get` content straight from the citable record — no token, no
+access to your private store, no dependence on your account continuing to
+exist. The retrieval command never changed; only where it resolves.
+
+Four things to get right:
+
+- **Register the stable API URL, not whatever it redirects to.** These
+  endpoints commonly answer `303` with a presigned object-store link carrying a
+  short expiry (one hour in the case I measured). Register the redirecting URL,
+  which re-signs on every fetch.
+- **The `web` remote sends no authentication.** This works only for openly
+  accessible files. Restricted or embargoed content still needs the
+  authenticated remote, which is coherent — restricted data should not be
+  anonymously fetchable — but it means the story is partial for a
+  mixed-access dataset.
+- **File identifiers change per version.** Where URLs are id-based rather than
+  path-based, a new published version means new ids, so URL registration is a
+  step in every release checklist, not a one-time action.
+- **URL claims live in the `git-annex` branch**, so they propagate to every
+  clone once pushed. Registering them is a publishing act in itself.
+
+### Choosing the key backend
+
+`MD5E` versus `SHA256E` is worth a deliberate decision rather than a default.
+`SHA256E` is cryptographically stronger and the better default. But `MD5E`
+embeds size and md5 in the key, and md5 is what most data repositories report
+in their file metadata — so with `MD5E` you can verify annex keys directly
+against a repository's own records, and against checksums recorded by whatever
+tool you are migrating from. If reconciling with external checksums is part of
+your workflow, match their algorithm. Changing later means `git annex migrate`,
+which rewrites keys — a migration, not a config change.
 
 ## Provenance with a workflow engine
 
@@ -133,13 +239,17 @@ work directory, for the dataset to be self-contained. Pipelines that publish by
 copy satisfy this; ones that symlink do not, and their scratch directory then
 cannot be deleted.
 
-## Publishing to Dataverse
+## Publishing to Dataverse — vendor specifics
 
-`datalad-dataverse` is the maintained extension. Create the Dataverse dataset
-in the web UI first — it is a **draft with a DOI already assigned** — then
-`datalad add-sibling-dataverse` with the instance URL and that DOI, and
-`datalad push`. The sibling is usable immediately; publication is not a
-prerequisite.
+`datalad-dataverse` is the extension for this. Check its activity before
+depending on it: as of 2026-08 the last release and last commit were both
+2024-10-29, so treat it as stable-but-dormant rather than actively maintained.
+
+Create the Dataverse dataset first — it is a **draft with a DOI already
+assigned** — then `datalad add-sibling-dataverse` with the instance URL and that
+DOI, and push. The sibling is usable immediately; publication is not a
+prerequisite. Creation is scriptable via the native API, so no web-UI step is
+required (see `dataverse-api`).
 
 **`--mode` takes five values**, not two: `annex`, `filetree`, `annex-only`,
 `filetree-only`, `git-only`. The two that matter:
@@ -155,10 +265,23 @@ prerequisite.
   retained, so a consumer who pinned an older commit cannot fetch that
   version's bytes from it.
 
-That last point is the actual argument for maintaining both: the annex record
-is durable multi-version storage, the filetree record is the readable citable
-artifact. If you keep both, publish only one — two DOIs for one dataset creates
-citation ambiguity.
+So the two modes look like the two roles above — annex for durable
+multi-version storage, filetree for the readable citable artifact. Resist the
+symmetry. Per **Publish exactly one DOI, ever**, only one of them should ever
+become public, and the working-store role belongs on mutable object storage
+rather than a second repository record.
+
+**A trap specific to this platform: `filetree` mode cannot produce a faithful
+readable record for tabular data.** Dataverse runs tabular ingest on deposit,
+converting CSV/TSV to its own tab-delimited representation — so the readable
+tree that was the entire point of the mode shows `all_counts.tab`, and the
+default download is the derived file. The native API accepts a `tabIngest:
+"false"` field to prevent this, but the extension does not send it (it builds a
+fixed pyDataverse `Datafile` payload), and `uningest` is superuser-only, so a
+depositor cannot fix it afterwards. If exact bytes matter in the published
+record — and for a citable dataset they do — deposit the human-readable
+snapshot by direct API call with `tabIngest` disabled, and let DataLad own the
+versioned side only. Filed upstream as datalad/datalad-dataverse#340.
 
 When a mode creates a storage and a regular sibling together, DataLad
 **configures the publication dependency automatically**; no manual
