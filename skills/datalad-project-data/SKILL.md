@@ -2,7 +2,7 @@
 name: datalad-project-data
 description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly."
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # DataLad for pipeline output data
@@ -141,32 +141,116 @@ in the web UI first — it is a **draft with a DOI already assigned** — then
 `datalad push`. The sibling is usable immediately; publication is not a
 prerequisite.
 
-**The `--mode` choice matters and is not reversible in place:**
+**`--mode` takes five values**, not two: `annex`, `filetree`, `annex-only`,
+`filetree-only`, `git-only`. The two that matter:
 
-- **`annex`** (default) — git history plus annexed content. Full versioning and
-  `datalad clone` works, but content sits under mangled annex-key paths. A
-  human browsing the record sees hashed blobs, **not** filenames.
-- **`filetree`** — a single snapshot as a readable directory tree, browsable and
-  downloadable from the web UI by people not using DataLad. No version history,
-  so content for older commits is not retained.
+- **`annex`** (default) — a sibling *tandem*: git history plus multi-version
+  content storage. Content lands under `annex/<hash>/<hash>/` as git-annex
+  keys, so `datalad get` works perfectly and a human browsing the web UI sees
+  hashed blobs.
+- **`filetree`** — a matching human-readable directory tree
+  (`counts/all_counts.csv`), browsable and downloadable without DataLad.
+  **It also deposits the git history and supports cloning** — it is not a dumb
+  snapshot. Its real limitation is that only one snapshot of *content* is
+  retained, so a consumer who pinned an older commit cannot fetch that
+  version's bytes from it.
 
-If both are wanted, they need two Dataverse datasets, and therefore two DOIs —
-publish only one to avoid citation ambiguity. Chain them with
-`datalad siblings --publish-depends <other>` (which sets
-`remote.<name>.datalad-publish-depends`) so a single push updates both in order,
-rather than leaving the second as a step someone must remember at the end of a
-multi-year project.
+That last point is the actual argument for maintaining both: the annex record
+is durable multi-version storage, the filetree record is the readable citable
+artifact. If you keep both, publish only one — two DOIs for one dataset creates
+citation ambiguity.
 
-Two caveats to state plainly:
+When a mode creates a storage and a regular sibling together, DataLad
+**configures the publication dependency automatically**; no manual
+`--publish-depends` is needed within a mode.
 
-- **Dataverse mints one DOI for all versions**, unlike Zenodo and Figshare.
-  Do not assume per-version DOI semantics.
-- **Repeated pushes to a `filetree` sibling are not documented.** The
-  extension's tutorial covers a one-off export and stops; it does not cover
-  repeated re-export, combining modes, or `publish-depends` against Dataverse.
-  Validate on a throwaway Dataverse dataset with three or four
-  push-modify-push cycles, confirming files are replaced rather than
-  duplicated, **before** trusting it with real data.
+### The push sequence, which is not what you would guess
+
+Three things bite in order, all verified:
+
+```bash
+# 1. First push to a sibling whose deposit does not exist yet MUST be plain
+#    git. `datalad push` fetches before pushing and aborts with
+#    "couldn't find remote refs (repository deposit does not exist...)".
+git push <sibling> main git-annex
+
+# 2. annex-mode content
+datalad push --to <sibling>
+
+# 3. filetree-mode content: `datalad push` uses `git annex copy`, which
+#    refuses an exporttree=yes remote ("use git-annex export to store content
+#    on it"). Export is the verb.
+git annex export main --to <sibling>-storage
+```
+
+Repeated exports **replace rather than accumulate** — each run emits
+`unexport` then `export` for changed paths. Verified over three
+modify-export cycles: the remote file count stayed constant, content changed
+each time, and checking out the original branch removed the test file
+entirely. This was the risk worth testing, and it holds.
+
+To modify an annexed file you must `datalad unlock` it first, or writes fail
+with `Permission denied` against the read-only annex object.
+
+### Credentials on a headless cluster
+
+git-annex's external special remote resolves the API token through DataLad's
+credential manager, which persists via `python-keyring`. The default
+`SecretService` backend fails on a login node with `Prompt dismissed` — there
+is no session to create a keyring collection in. Select a file backend:
+
+```bash
+export PYTHON_KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring
+```
+
+Inject the token by environment so it never lands in a config file. The secret
+field is **`secret`**, not `token` — `..._TOKEN` is silently ignored and you
+get "No suitable credential found":
+
+```bash
+export DATALAD_CREDENTIAL_<NAME>_SECRET="$(cat ~/.config/.../token)"
+export DATALAD_CREDENTIAL_<NAME>_TYPE=token
+export DATALAD_CREDENTIAL_<NAME>_REALM="https://<host>/dataverse"
+```
+
+Note that `PlaintextKeyring` writes the token to disk in cleartext under
+`~/.local/share/python_keyring/`; restrict that directory, and treat it as
+equivalent in sensitivity to the token file itself.
+
+## Two traps that cost real time
+
+**`text2git` is wrong for a data dataset.** It routes text files into git, and
+a count matrix is text. Creating a dataset with `-c text2git` would commit an
+79 MB CSV and a subject-level metadata table into git proper — bloating every
+clone and putting sensitive columns permanently in history where they cannot be
+withdrawn.
+
+**`.gitattributes` can annex itself, and then nothing works.** Within
+gitattributes the *last* matching line wins, so a catch-all placed after your
+exceptions captures the attributes file too. It becomes a symlink, git reports
+`unable to access '.gitattributes': Too many levels of symbolic links`, and
+**every attribute silently becomes `unspecified`** — so all files get annexed
+with the default backend and no rule you wrote applies. Put the catch-all
+first, exceptions after, and add `.gitattributes annex.largefiles=nothing`
+explicitly. Verify with `git check-attr annex.largefiles -- <paths>` before
+saving any data, and consider a plain `git add` for the attributes file so it
+lands in git regardless.
+
+```
+* annex.backend=MD5E
+* annex.largefiles=anything
+*.md annex.largefiles=nothing
+*.sh annex.largefiles=nothing
+*.py annex.largefiles=nothing
+.gitattributes annex.largefiles=nothing
+```
+
+Using the `MD5E` backend has a side benefit: annex keys embed size and md5, so
+they can be checked directly against checksums recorded by whatever tool you
+are migrating from.
+
+Unrelated but wasteful: `-q` is a *global* datalad option. `datalad save -q -m
+MSG PATH` prints usage and does nothing; write `datalad -q save ...`.
 
 ## Downstream consumption
 
@@ -179,6 +263,19 @@ The subdataset records a commit SHA, so the downstream repo states exactly
 which data version it used — the property that makes the pair reproducible.
 Have downstream projects commit that pin rather than tracking the upstream
 default branch.
+
+**After cloning from a Dataverse record, the storage sibling is not
+auto-enabled.** The clone succeeds and the file tree is visible, but the first
+`datalad get` fails with `not available`. DataLad prints the fix; tell
+consumers about it up front:
+
+```bash
+datalad siblings enable -s <sibling>-storage
+```
+
+Documentation kept in git rather than the annex is readable in a fresh clone
+with no `get` at all, which is why a README and a provenance record belong
+there.
 
 For choosing an archive and the publication workflow, see the
 `research-data-publication` skill. For scripting deposits, see

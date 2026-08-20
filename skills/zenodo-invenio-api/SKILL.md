@@ -2,7 +2,7 @@
 name: zenodo-invenio-api
 description: "Use when writing or debugging code that talks to the Zenodo or InvenioRDM REST API: creating drafts, uploading files, publishing records, minting or reserving DOIs, importing files into a new version, handling rate limits and retries, or verifying downloaded checksums. Contains empirically verified API behavior that contradicts the documentation in several places. Invoke when the user is scripting a Zenodo deposit, hits a 400/404/429 from Zenodo, asks about sandbox.zenodo.org, files-import, concept versus version DOIs, oc-checksum, or automating dataset publication to an InvenioRDM instance."
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Zenodo / InvenioRDM API behavior

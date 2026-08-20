@@ -77,8 +77,9 @@ code.
 The `dataverse-api` findings were verified directly against
 `demo.dataverse.org` (v6.11) and `dataverse.harvard.edu` (v6.10.1) on
 2026-08-20, by reading each instance's OpenAPI spec and live metadata blocks.
-Response bodies are marked unverified in that skill, pending a first
-authenticated run.
+Both were then re-verified by authenticated runs against production and demo
+during a real ~95 MB deposit, which corrected several assumptions and turned up
+Harvard-specific WAF behavior; what remains untested is still labelled as such.
 
 ## Contributing
 
