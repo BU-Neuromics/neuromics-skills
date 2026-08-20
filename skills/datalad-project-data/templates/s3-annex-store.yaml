@@ -19,6 +19,22 @@ Parameters:
     Description: IAM user that git-annex will authenticate as.
     Default: git-annex-store
 
+  ProjectName:
+    Type: String
+    Description: >-
+      Project this store belongs to. Used only for tagging, which is what makes
+      per-project cost attribution work — S3 cost allocation tags apply at the
+      bucket level, not to prefixes within a bucket.
+    Default: unspecified
+
+  DataClassification:
+    Type: String
+    Description: >-
+      Sensitivity tier of the content. Tagged so that "which buckets hold
+      restricted data" is answerable without reading any of them.
+    Default: restricted
+    AllowedValues: [open, restricted, phi]
+
   BucketVersioning:
     Type: String
     Description: >-
@@ -64,6 +80,13 @@ Resources:
             BucketKeyEnabled: true
       VersioningConfiguration:
         Status: !Ref BucketVersioning
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: DataClassification
+          Value: !Ref DataClassification
+        - Key: Purpose
+          Value: git-annex-working-store
       LifecycleConfiguration:
         Rules:
           # Interrupted multipart uploads are invisible in the object listing
@@ -107,6 +130,11 @@ Resources:
                   - s3:AbortMultipartUpload
                   - s3:ListMultipartUploadParts
                 Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: git-annex-working-store
 
 Outputs:
   BucketName:
@@ -127,6 +155,10 @@ Outputs:
       not a stack output, since stack outputs are readable by anyone with
       cloudformation:DescribeStacks.
     Value: !Sub 'aws iam create-access-key --user-name ${AnnexUser}'
+
+  DataClassification:
+    Description: Sensitivity tier this bucket is tagged with.
+    Value: !Ref DataClassification
 
   GitAnnexInitremote:
     Description: >-

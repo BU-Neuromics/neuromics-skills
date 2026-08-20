@@ -2,7 +2,7 @@
 name: datalad-project-data
 description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly. Also covers choosing a storage backend (S3/MinIO, WebDAV, rclone, rsync, encrypted remotes, self-hosting trade-offs), why an archival repository is the wrong place for a working store, publishing exactly one DOI, and registering published download URLs as annex sources with git annex registerurl so one citable record serves both humans and DataLad."
 metadata:
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # DataLad for pipeline output data
@@ -197,6 +197,37 @@ write by hand, because each addresses a specific way this goes wrong:
 Versioning with a short noncurrent-expiry window is also worth enabling: it
 buys a recovery window against an accidental `git annex drop --from`, without
 paying to retain every version forever.
+
+**One bucket per dataset, not one per lab.** S3 charges nothing for a bucket —
+you pay for storage, requests and egress — so consolidating saves no money and
+the choice is purely about boundaries. Per-bucket wins on three:
+
+- **IAM blast radius** is per-project by construction. A shared bucket needs
+  prefix-scoped policies (`Resource: .../project/*` plus an `s3:prefix`
+  condition on `ListBucket`), which is achievable but must be authored
+  correctly for every project, and a mistake fails open silently.
+- **Cost attribution.** S3 cost allocation tags apply to buckets, not to
+  prefixes inside them. Tag `Project` and `DataClassification` at creation.
+- **Retention and compliance.** Study retention is administered per study, so a
+  per-project bucket can be audited and eventually deleted wholesale; a prefix
+  cannot.
+
+The default quota is 100 buckets per account (raisable to 1,000), which is not
+a constraint at lab scale. Bucket names are globally unique across all of AWS,
+so adopt a convention like `<org>-<project>-annex`.
+
+A shared bucket is reasonable for many small datasets in a single sensitivity
+tier managed by one person — set `fileprefix=<project>/` per remote, which is
+exactly what that parameter is for. A useful middle path is one bucket per
+*sensitivity tier* with `fileprefix=` per project: it keeps the boundary that
+matters for audit while reducing stack count, and gives up per-project cost
+attribution.
+
+Note that with `encryption=shared`, each dataset's content is encrypted under a
+key held in *its own* `git-annex` branch — so a leaked bucket credential yields
+ciphertext for datasets whose git repos the holder cannot read. That is a real
+mitigation, but do not treat it as the access boundary; scope IAM properly
+regardless.
 
 ### Do not use an archival repository as your working store
 
