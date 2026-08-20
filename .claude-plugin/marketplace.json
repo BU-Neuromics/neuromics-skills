@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "neuromics-skills",
+  "description": "Agent skills for computational research projects from the BU Neuromics lab — research data publication, FAIR archive APIs, and DataLad provenance for upstream/downstream project pipelines.",
+  "owner": {
+    "name": "BU Neuromics",
+    "email": "labadorf@bu.edu"
+  },
+  "plugins": [
+    {
+      "name": "research-data",
+      "description": "Publishing, versioning, and provenance for research data: choosing an archive, keeping data private until publication, granting reviewer access, FAIR repository API behavior, and DataLad dataset design for pipelines that feed downstream analysis projects.",
+      "author": {
+        "name": "BU Neuromics"
+      },
+      "category": "data",
+      "source": "./",
+      "homepage": "https://github.com/BU-Neuromics/neuromics-skills"
+    }
+  ]
+}
