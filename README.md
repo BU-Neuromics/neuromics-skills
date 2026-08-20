@@ -66,7 +66,9 @@ independently. Covers the storage-backend menu (S3/MinIO, WebDAV, rclone,
 rsync, encrypted remotes, self-hosting trade-offs), why an archival repository
 is the wrong home for a working store, publishing exactly one DOI, and
 registering published download URLs as annex sources so a single citable record
-serves both humans and DataLad.
+serves both humans and DataLad. Ships a CloudFormation template
+(`templates/s3-annex-store.yaml`) that provisions a private S3 bucket and
+least-privilege IAM user for the working-store role.
 
 ## Provenance of the API findings
 

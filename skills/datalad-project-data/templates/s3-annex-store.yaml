@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >-
+  Private S3 bucket and least-privilege IAM user for use as a git-annex special
+  remote (the "working store" role for a DataLad dataset). Creates no access
+  key: see the Outputs for the one command that does, so the secret is never
+  written into CloudFormation stack outputs.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: >-
+      Globally unique bucket name. Lowercase letters, digits and hyphens.
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+    ConstraintDescription: 3-63 chars, lowercase alphanumeric, dots and hyphens.
+
+  IAMUserName:
+    Type: String
+    Description: IAM user that git-annex will authenticate as.
+    Default: git-annex-store
+
+  BucketVersioning:
+    Type: String
+    Description: >-
+      Keep S3 versions of overwritten/deleted objects. Enabled gives you a
+      recovery window against an accidental `git annex drop --from`.
+    Default: Enabled
+    AllowedValues: [Enabled, Suspended]
+
+  NoncurrentVersionExpirationDays:
+    Type: Number
+    Description: >-
+      Days to retain superseded object versions before deletion. Only has an
+      effect when BucketVersioning is Enabled.
+    Default: 30
+    MinValue: 1
+    MaxValue: 3650
+
+Resources:
+  AnnexBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete: this bucket holds data, and a stack teardown
+    # must never be the thing that destroys it.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      # Private, with ACLs disabled entirely.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      # Server-side encryption at rest. This is defence in depth, NOT a
+      # substitute for git-annex `encryption=shared`, which encrypts
+      # client-side so the provider never sees plaintext at all.
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: !Ref BucketVersioning
+      LifecycleConfiguration:
+        Rules:
+          # Interrupted multipart uploads are invisible in the object listing
+          # but still billed. git-annex uses multipart for large files, so
+          # without this a failed transfer can cost money indefinitely.
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionExpirationDays
+
+  AnnexUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref IAMUserName
+      Policies:
+        - PolicyName: git-annex-bucket-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: BucketLevel
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:ListBucketMultipartUploads
+                  # git-annex's initremote attempts to create the bucket even
+                  # when it already exists. Granting this only for this one
+                  # bucket avoids a confusing AccessDenied on setup.
+                  - s3:CreateBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}'
+              - Sid: ObjectLevel
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${BucketName}/*'
+
+Outputs:
+  BucketName:
+    Description: Bucket holding annexed content.
+    Value: !Ref AnnexBucket
+
+  Region:
+    Description: Region — this is the value for git-annex's datacenter= parameter.
+    Value: !Ref AWS::Region
+
+  IAMUserName:
+    Description: IAM user git-annex authenticates as.
+    Value: !Ref AnnexUser
+
+  CreateAccessKeyCommand:
+    Description: >-
+      Run this to mint the key. The secret is shown once and is deliberately
+      not a stack output, since stack outputs are readable by anyone with
+      cloudformation:DescribeStacks.
+    Value: !Sub 'aws iam create-access-key --user-name ${AnnexUser}'
+
+  GitAnnexInitremote:
+    Description: >-
+      Run inside the dataset, with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+      exported from the key created above.
+    Value: !Sub >-
+      git annex initremote s3 type=S3 bucket=${AnnexBucket}
+      datacenter=${AWS::Region} encryption=shared partsize=1GiB

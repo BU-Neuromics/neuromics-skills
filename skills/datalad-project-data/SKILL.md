@@ -2,7 +2,7 @@
 name: datalad-project-data
 description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly. Also covers choosing a storage backend (S3/MinIO, WebDAV, rclone, rsync, encrypted remotes, self-hosting trade-offs), why an archival repository is the wrong place for a working store, publishing exactly one DOI, and registering published download URLs as annex sources with git annex registerurl so one citable record serves both humans and DataLad."
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # DataLad for pipeline output data
@@ -149,6 +149,54 @@ usually the thing you were trying to de-risk. For modest volumes, managed
 object storage with a free tier is less work and more durable. Self-host when
 you need data sovereignty or already run the infrastructure, not to save money
 on gigabytes.
+
+### Provisioning an S3 working store
+
+`templates/s3-annex-store.yaml` in this skill directory is a CloudFormation
+template that provisions a private bucket plus a least-privilege IAM user for
+exactly this role. Offer it when someone is standing up a working store on AWS.
+Prerequisite is an authenticated AWS CLI.
+
+```bash
+aws cloudformation deploy --template-file s3-annex-store.yaml \
+  --stack-name annex-store --parameter-overrides BucketName=NAME \
+  --capabilities CAPABILITY_NAMED_IAM        # required: it creates a named IAM user
+
+aws iam create-access-key --user-name git-annex-store   # secret shown once
+
+git annex initremote s3 type=S3 bucket=NAME \
+    datacenter=us-east-1 encryption=shared partsize=1GiB
+```
+
+**`datacenter=` is git-annex's name for the AWS region.** `region=` only
+applies when pointing at a non-AWS S3-compatible host, where you also set
+`host=` and usually `requeststyle=path`.
+
+Five decisions in that template are worth carrying into any equivalent you
+write by hand, because each addresses a specific way this goes wrong:
+
+- **`DeletionPolicy: Retain` on the bucket.** A stack teardown must never be
+  the thing that destroys data.
+- **Do not create the access key in the template.** CloudFormation stack
+  outputs are readable by anyone holding `cloudformation:DescribeStacks`, so a
+  secret placed there is far more exposed than it appears. Output the *command*
+  that mints the key instead.
+- **Abort incomplete multipart uploads on a lifecycle rule.** Interrupted
+  multipart uploads do not appear in an object listing but are still billed,
+  and git-annex uses multipart for large files — so a failed transfer can cost
+  money indefinitely and invisibly.
+- **Grant `s3:CreateBucket`, scoped to the single bucket.** git-annex's
+  `initremote` attempts to create the bucket even when it already exists;
+  without this, setup fails with a confusing AccessDenied.
+- **Server-side encryption is not a substitute for `encryption=shared`.** SSE
+  means the provider encrypts data it can still read. Client-side annex
+  encryption means it never holds plaintext. For sensitive content you want the
+  latter — and then the key lives in the dataset's `git-annex` branch, so
+  losing that branch loses the data.
+
+Versioning with a short noncurrent-expiry window is also worth enabling: it
+buys a recovery window against an accidental `git annex drop --from`, without
+paying to retain every version forever.
 
 ### Do not use an archival repository as your working store
 
