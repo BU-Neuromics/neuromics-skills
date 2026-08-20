@@ -2,7 +2,7 @@
 name: datalad-project-data
 description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly. Also covers choosing a storage backend (S3/MinIO, WebDAV, rclone, rsync, encrypted remotes, self-hosting trade-offs), why an archival repository is the wrong place for a working store, publishing exactly one DOI, and registering published download URLs as annex sources with git annex registerurl so one citable record serves both humans and DataLad."
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # DataLad for pipeline output data
@@ -292,7 +292,7 @@ for content-addressed storage. After the archive record is public, tell
 git-annex that each key is also available there:
 
 ```bash
-git annex registerurl MD5E-s82214524--b63a48ec…  \
+git annex registerurl --remote web 'MD5E-s82214524--b63a48ec…' \
   'https://<host>/api/access/datafile/<id>?format=original'
 ```
 
@@ -301,7 +301,12 @@ can now `datalad get` content straight from the citable record — no token, no
 access to your private store, no dependence on your account continuing to
 exist. The retrieval command never changed; only where it resolves.
 
-Four things to get right:
+**`--remote web` is not optional.** If a special remote for the same host is
+configured on the dataset, it claims these URLs and registration dies with
+`external special remote error: No suitable credential found or specified`.
+Forcing the built-in `web` remote is what makes it work.
+
+Five things to get right:
 
 - **Register the stable API URL, not whatever it redirects to.** These
   endpoints commonly answer `303` with a presigned object-store link carrying a
@@ -316,7 +321,17 @@ Four things to get right:
   path-based, a new published version means new ids, so URL registration is a
   step in every release checklist, not a one-time action.
 - **URL claims live in the `git-annex` branch**, so they propagate to every
-  clone once pushed. Registering them is a publishing act in itself.
+  clone once pushed — and *only* once pushed. Registering them is a publishing
+  act in itself.
+- **Match local paths to remote files via the archive's record of the original
+  filename**, not the name it currently serves. A platform that transforms
+  deposits on ingest renames them, so naive path matching silently finds
+  nothing.
+
+Verified end to end: a fresh clone with no tokens, no cloud keys and no cached
+credentials retrieved 98 MB through the `web` remote, byte-identical, in about
+five seconds. That is the property that lets one citable DOI serve readers and
+DataLad from the same record.
 
 ### Choosing the key backend
 

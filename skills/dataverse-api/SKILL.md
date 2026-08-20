@@ -2,7 +2,7 @@
 name: dataverse-api
 description: "Use when scripting or debugging the Dataverse native REST API: creating datasets and minting DOIs, generating Preview/Private URLs for reviewer access, publishing datasets, discovering required metadata fields and controlled vocabularies, or handling differences between Dataverse instances and versions. Invoke when the user automates a Dataverse deposit, mentions dataverse.harvard.edu or demo.dataverse.org, asks about X-Dataverse-key, dataset-json, previewUrl or privateUrl, anonymizedAccess, :publish, dataset collections and aliases, or needs to give journal reviewers access to an unpublished Dataverse dataset."
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Dataverse native API
@@ -110,11 +110,39 @@ leaking via page HTML and via the hosting collection.
 
 ## Publishing
 
+Verified end to end against a real published record.
+
 ```
+POST /api/dataverses/{alias}/actions/:publish      # parent collection, FIRST
 POST /api/datasets/{id}/actions/:publish?type=major
 ```
 
 Also accepts `type=minor` and an `assureIsIndexed` flag.
+
+**Publishing is asynchronous.** The dataset response carries
+`locks: ["finalizePublication"]`. Poll `GET /api/datasets/{id}/locks` until it
+returns an empty list before doing anything that depends on the release; it
+cleared in about five seconds for a 98 MB record. Acting on the record before
+the lock clears is a race.
+
+**Anonymous access works the moment it is released** — both
+`/versions` and `/access/datafile` answer with no API token.
+
+**`?format=original` is mandatory for byte-exact retrieval**, and this is worth
+measuring rather than trusting. On one published record, fetched with no token:
+
+| | bytes | md5 |
+|---|---|---|
+| `?format=original` | 82,214,524 | matches the deposited file |
+| default | 82,530,120 | the ingest derivative, different hash |
+
+If anything downstream verifies checksums — git-annex does — omitting the
+parameter fails every single one.
+
+**Recover file paths from `originalFileName`, not `filename`.** After ingest the
+published entry is `all_counts.tab` while the original name was
+`all_counts.csv`; only `originalFileName` maps back, so any code matching remote
+files to local paths must use it.
 
 **Publication is irreversible.** Never wire this into an automated pipeline or
 a script that runs unattended. Require an explicit human confirmation in the
