@@ -181,5 +181,6 @@ Have downstream projects commit that pin rather than tracking the upstream
 default branch.
 
 For choosing an archive and the publication workflow, see the
-`research-data-publication` skill. For scripting Zenodo deposits, see
-`zenodo-invenio-api`.
+`research-data-publication` skill. For scripting deposits, see
+`zenodo-invenio-api` and `dataverse-api` — the latter covers creating the
+draft dataset and DOI that `add-sibling-dataverse` requires.

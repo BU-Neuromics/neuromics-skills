@@ -47,6 +47,15 @@ reconcile rather than re-publish, `oc-checksum` strips leading zeros,
 `files-import` is all-or-nothing and empty-draft-only, and
 `?is_published=false` is silently ignored.
 
+### `dataverse-api`
+
+Dataverse native REST API: fetching an instance's own OpenAPI spec as the
+authoritative reference, creating datasets and minting DOIs, required citation
+fields and controlled vocabularies (probe per instance — demo carries a
+`Demo Only` subject that production rejects), fully scriptable Preview URLs
+including the anonymized double-blind variant, and Dataverse's
+one-DOI-for-all-versions model.
+
 ### `datalad-project-data`
 
 DataLad dataset design for pipelines whose outputs feed other projects.
@@ -64,6 +73,12 @@ fixture-backed spike run against `sandbox.zenodo.org` on 2026-08-10. `datapin`
 itself is no longer developed — mature tooling covers its ground — but the API
 findings outlived it, which is why they live here as a skill rather than as
 code.
+
+The `dataverse-api` findings were verified directly against
+`demo.dataverse.org` (v6.11) and `dataverse.harvard.edu` (v6.10.1) on
+2026-08-20, by reading each instance's OpenAPI spec and live metadata blocks.
+Response bodies are marked unverified in that skill, pending a first
+authenticated run.
 
 ## Contributing
 

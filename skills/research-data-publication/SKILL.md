@@ -83,6 +83,10 @@ author, depositor, contact, producer, production place, and distributor from
 metadata, citations, and version history. Access is revocable by disabling the
 URL.
 
+**All of this is scriptable** — creating the link, the anonymized variant, and
+revoking it are single API calls, so reviewer access need not be a manual step
+at submission time. See the `dataverse-api` skill.
+
 Two things to tell the user:
 
 1. **A reviewer clicks download links in a web UI.** They will not install a
@@ -134,5 +138,5 @@ If the archive record is separate from the code repository, that SHA is the
 only link between them — omit it and the provenance is gone.
 
 For DataLad-managed datasets and the upstream/downstream project relationship,
-see the `datalad-project-data` skill. For Zenodo and InvenioRDM API behavior
-when scripting deposits, see the `zenodo-invenio-api` skill.
+see the `datalad-project-data` skill. For API behavior when scripting deposits,
+see `zenodo-invenio-api` and `dataverse-api`.

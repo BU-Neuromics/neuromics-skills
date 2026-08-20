@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "neuromics-skills",
-  "description": "Agent skills for computational research projects from the BU Neuromics lab — research data publication, FAIR archive APIs, and DataLad provenance for upstream/downstream project pipelines.",
+  "description": "Agent skills for computational research projects from the BU Neuromics lab \u2014 research data publication, FAIR archive APIs, and DataLad provenance for upstream/downstream project pipelines.",
   "owner": {
     "name": "BU Neuromics",
     "email": "labadorf@bu.edu"
