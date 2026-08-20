@@ -165,12 +165,25 @@ aws cloudformation deploy --template-file s3-annex-store.yaml \
 aws iam create-access-key --user-name git-annex-store   # secret shown once
 
 git annex initremote s3 type=S3 bucket=NAME \
-    datacenter=us-east-1 encryption=shared partsize=1GiB
+    host=s3.us-east-1.amazonaws.com port=443 region=us-east-1 \
+    signature=v4 encryption=shared partsize=1GiB
 ```
 
-**`datacenter=` is git-annex's name for the AWS region.** `region=` only
-applies when pointing at a non-AWS S3-compatible host, where you also set
-`host=` and usually `requeststyle=path`.
+**Set `host=` and `port=443` explicitly on AWS — the single biggest trap here.**
+The documented shorthand `datacenter=<region>` targets the *legacy* virtual-host
+form `<bucket>.s3-<region>.amazonaws.com` (hyphen, not dot), which no longer
+resolves, **and it negotiates on port 80 — plain HTTP**. The failure surfaces as
+a DNS error that says nothing about the protocol:
+
+```
+host name: "<bucket>.s3-us-east-1.amazonaws.com", service name: "80"
+does not exist (Name or service not known)
+```
+
+`port=443` is what selects HTTPS. Never leave it to the default: without it,
+credentials and content cross the network unencrypted. `region=` is meaningful
+precisely because `host=` is set. For a non-AWS S3-compatible host you also
+usually need `requeststyle=path`.
 
 Five decisions in that template are worth carrying into any equivalent you
 write by hand, because each addresses a specific way this goes wrong:
@@ -222,6 +235,17 @@ exactly what that parameter is for. A useful middle path is one bucket per
 *sensitivity tier* with `fileprefix=` per project: it keeps the boundary that
 matters for audit while reducing stack count, and gives up per-project cost
 attribution.
+
+Verify encryption is doing something rather than assuming it. With
+`encryption=shared`, object *names* in the bucket become `GPGHMACSHA1--<hmac>`,
+so even the annex key — which would otherwise expose each file's md5 and exact
+size — is hidden, and a raw fetch returns `PGP symmetric key encrypted data -
+AES with 256-bit key`. A useful side effect: GPG compresses before encrypting,
+so 98.5 MB of count matrices occupied 30.1 MB stored (0.31x).
+
+git-annex caches the S3 credentials in `.git/annex/creds/<remote-uuid>` rather
+than embedding them in the repository, so a collaborator who clones supplies
+their own.
 
 Note that with `encryption=shared`, each dataset's content is encrypted under a
 key held in *its own* `git-annex` branch — so a leaked bucket credential yields
