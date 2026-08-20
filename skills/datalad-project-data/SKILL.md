@@ -2,7 +2,7 @@
 name: datalad-project-data
 description: "Use when designing DataLad datasets for research pipelines, especially when one project produces processed data that downstream analysis projects consume: dataset shape, what to annex versus commit to git, keeping clinical or PHI files out, siblings and where content bytes live, moving data between an HPC cluster and a laptop, recording provenance with datalad run, and pinning upstream data from a downstream repo. Invoke when the user mentions DataLad, git-annex, datalad get/push/clone, subdatasets, RIA stores, annex special remotes, migrating off DVC, or asks how a downstream project should consume another project's outputs reproducibly. Also covers choosing a storage backend (S3/MinIO, WebDAV, rclone, rsync, encrypted remotes, self-hosting trade-offs), why an archival repository is the wrong place for a working store, publishing exactly one DOI, and registering published download URLs as annex sources with git annex registerurl so one citable record serves both humans and DataLad."
 metadata:
-  version: "0.4.1"
+  version: "0.5.0"
 ---
 
 # DataLad for pipeline output data

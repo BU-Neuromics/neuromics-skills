@@ -163,7 +163,10 @@ Outputs:
   GitAnnexInitremote:
     Description: >-
       Run inside the dataset, with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-      exported from the key created above.
+      exported from the key created above. host= and port=443 are NOT optional:
+      without them git-annex targets the legacy s3-<region> endpoint (which does
+      not resolve) over plain HTTP on port 80.
     Value: !Sub >-
       git annex initremote s3 type=S3 bucket=${AnnexBucket}
-      datacenter=${AWS::Region} encryption=shared partsize=1GiB
+      host=s3.${AWS::Region}.amazonaws.com port=443 region=${AWS::Region}
+      signature=v4 encryption=shared partsize=1GiB
