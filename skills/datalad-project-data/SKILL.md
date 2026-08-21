@@ -70,6 +70,36 @@ dataset on every push. Without that, the code→data link is gone.
 **Choose one repo when minimizing moving parts matters more** — but then
 excluding sensitive directories is step one, not a later cleanup.
 
+### Naming the data dataset
+
+**Default: the code repository's name plus `-data`.** If the analysis lives in
+`MicroPD-microbial-analysis`, its data dataset is
+`MicroPD-microbial-analysis-data`. Do not invent a shorter or prettier name.
+
+The point is that the pairing is mechanically derivable in both directions.
+Someone holding either repo can construct the other's name without a lookup
+table, a README, or asking — which matters most at the moment it is hardest to
+ask, when a dataset surfaces years later detached from the project that made
+it. A name like `micropd-data` beside `MicroPD-microbial-analysis` looks
+tidier and costs you exactly that property.
+
+Two consequences worth stating:
+
+- **Do not strip a role suffix from the code repo name.** A pipeline repo
+  called `<project>-preprocessing` yields `<project>-preprocessing-data`, not
+  `<project>-data`. Stripping it reintroduces the guessing the rule exists to
+  remove, and it collides the moment a second repo in the same project also
+  produces publishable outputs.
+- **An existing dataset keeps its name.** Renaming a repository breaks clone
+  URLs and, more expensively, every downstream `datalad clone -d` subdataset
+  pin that points at it. Apply this to new datasets; leave working ones alone
+  and note the exception where someone will find it.
+
+The **bucket** name is a separate namespace and stays `<org>-<project>-annex`
+(see the working-store section) — bucket names are globally unique across all
+of AWS and cannot carry a repo name's capitalisation, so trying to make the two
+match produces a worse name in both places.
+
 ## Keep clinical and PHI files out — deliberately
 
 A directory that is untracked *and* un-gitignored is the dangerous state: it
@@ -227,7 +257,10 @@ the choice is purely about boundaries. Per-bucket wins on three:
 
 The default quota is 100 buckets per account (raisable to 1,000), which is not
 a constraint at lab scale. Bucket names are globally unique across all of AWS,
-so adopt a convention like `<org>-<project>-annex`.
+so adopt a convention like `<org>-<project>-annex`. Note this is deliberately
+*not* the dataset repository's name plus a suffix: bucket names are lowercase
+only and globally unique, so they cannot track a repo name faithfully. See
+**Naming the data dataset** for the repo-side rule.
 
 A shared bucket is reasonable for many small datasets in a single sensitivity
 tier managed by one person — set `fileprefix=<project>/` per remote, which is
