@@ -523,8 +523,19 @@ Using the `MD5E` backend has a side benefit: annex keys embed size and md5, so
 they can be checked directly against checksums recorded by whatever tool you
 are migrating from.
 
-Unrelated but wasteful: `-q` is a *global* datalad option. `datalad save -q -m
-MSG PATH` prints usage and does nothing; write `datalad -q save ...`.
+Unrelated but wasteful: **datalad has no `-q` at all** — not as a subcommand
+option and not as a global one. Verified on 1.6.2, where both `datalad save -q
+-m MSG` and `datalad -q save -m MSG` fail with `error: unrecognized argument
+-q` and print usage without doing anything. The globals are `-c`, `-C`,
+`--cmd`, `-l LEVEL`, `--on-failure`, `--report-status`, `--report-type`, `-f`,
+`--dbg` and `--idbg`; to quiet output use the log level:
+
+```bash
+datalad -l warning save -m MSG PATH
+```
+
+`-c` genuinely is global, so repo config overrides go before the subcommand
+(`datalad -c user.name=… save`), never after it.
 
 ## Downstream consumption
 
