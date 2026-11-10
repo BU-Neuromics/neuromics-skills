@@ -547,6 +547,42 @@ consumers about it up front:
 datalad siblings enable -s <sibling>-storage
 ```
 
+**A read-only source with unlocked files cannot serve `get`.** Every
+`datalad get` from a clone fails with `Unable to access these remotes: origin`
+and `No other repository is known to contain the file`, although the objects
+under `.git/annex/objects` are readable; `--debug` goes silent after the
+remote's `git config --list`. The cause: to serve a local remote whose files
+may be unlocked (`annex.addunlocked`, typically chosen so file browsers show
+real files rather than symlinks), git-annex opens the remote's keys database,
+and that needs `open(".git/annex/keysdb.lck", O_RDWR|O_CREAT)` — `EACCES` on a
+repository made read-only by policy, even for its owner. Locked files from the
+same read-only source work (verified with git-annex 10.20260601,
+datalad 1.6.2). Publisher-side fixes, best first:
+
+- Keep the browsable unlocked directory, and also publish a read-only **bare**
+  clone (or RIA store) as the clone source, refreshed each release with
+  `git annex get --all --from <unlocked-repo>`. A bare repo has no work tree,
+  so the check never arises. Costs a second copy of the content.
+- `git annex lock` everything — works read-only, but browsers show symlinks.
+- Make the annex group-writable (`core.sharedRepository group`, plus `g+w` on
+  `.git/annex/*.lck` and `.git/annex/keysdb*`) — works, but weakens the policy.
+
+If the publisher cannot change anything, a consumer can copy each file out of
+the source work tree and inject it; `reinject` accepts the bytes only if they
+match the recorded key:
+
+```bash
+cp /path/to/release/data/table.csv /tmp/table.csv   # keep the extension
+git annex reinject /tmp/table.csv data/table.csv
+```
+
+Keep the extension, since `*E` backends include it in the key. Avoid
+`reinject --known` here: for a file outside the clone it hashes with the
+default backend rather than the one in `.gitattributes`, and reports "Not
+known content". A source owned by another user also needs `safe.directory`
+(e.g. `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory
+GIT_CONFIG_VALUE_0='*'`), or git refuses with "dubious ownership".
+
 Documentation kept in git rather than the annex is readable in a fresh clone
 with no `get` at all, which is why a README and a provenance record belong
 there.
