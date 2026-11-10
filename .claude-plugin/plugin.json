@@ -1,7 +1,7 @@
 {
   "name": "research-data",
   "description": "Publishing, versioning, and provenance for research data: choosing an archive, keeping data private until publication, granting reviewer access, FAIR repository API behavior, and DataLad dataset design for pipelines that feed downstream analysis projects.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": {
     "name": "BU Neuromics"
   },
